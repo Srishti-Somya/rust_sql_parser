@@ -1,5 +1,5 @@
-mod tokenizer;
-mod parser;
+// mod tokenizer;
+// mod parser;
 use rust_sql_parser::{tokenizer::tokenize, parser::parse};
 
 fn main() {
