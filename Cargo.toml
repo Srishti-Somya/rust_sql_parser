@@ -4,3 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+thiserror = "1.0"
+regex = "1.7"
+lazy_static = "1.4"
+
+[lib]
+name = "rust_sql_parser"
+path = "src/lib.rs"  
+
+[[bin]]  
+name = "rust_sql_parser"
+path = "src/main.rs"
