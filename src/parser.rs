@@ -28,7 +28,6 @@ impl Parser {
         let where_clause = self.parse_optional_where_clause()?;
         Ok(SQLStatement::Select(SelectStatement { columns, table, where_clause }))
     }
-
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Into)?;
         let table = self.expect_identifier("Expected table name after INSERT INTO")?;
@@ -36,9 +35,8 @@ impl Parser {
         let columns = self.parse_column_list()?;
         self.expect(Token::RightParen)?;
         self.expect(Token::Values)?;
-        self.expect(Token::LeftParen)?;
-        let values = self.parse_values_list()?;
-        self.expect(Token::RightParen)?;
+        
+        let values = self.parse_values_list()?; // Ensure this returns Vec<String> instead of Vec<Vec<String>>
         Ok(SQLStatement::Insert(InsertStatement { table, columns, values }))
     }
 
@@ -68,10 +66,10 @@ impl Parser {
         let value = self.expect_string_literal("Expected value in WHERE clause")?;
         Ok(WhereClause { column, operator, value })
     }
-
+    
     fn parse_optional_where_clause(&mut self) -> Result<Option<WhereClause>, String> {
         if let Some(Token::Where) = self.peek() {
-            self.advance();
+            self.advance(); // This is a mutable borrow
             Ok(Some(self.parse_where_clause()?))
         } else {
             Ok(None)
@@ -81,11 +79,15 @@ impl Parser {
     fn parse_column_list(&mut self) -> Result<Vec<String>, String> {
         let mut columns = Vec::new();
         loop {
-            match self.advance() {
-                Some(Token::Identifier(col)) => columns.push(col),
-                Some(Token::Comma) => continue,
-                Some(Token::RightParen) => break,
-                _ => return Err("Syntax error in column list".to_string()),
+            match self.peek() {
+                Some(Token::Identifier(col)) => {
+                    self.advance();
+                    columns.push(col.clone()); // Ensure correct type
+                }
+                Some(Token::Comma) => {
+                    self.advance();
+                }
+                _ => break,
             }
         }
         if columns.is_empty() {
@@ -94,20 +96,27 @@ impl Parser {
         Ok(columns)
     }
 
-    fn parse_values_list(&mut self) -> Result<Vec<String>, String> {
-        let mut values = Vec::new();
+    fn parse_values_list(&mut self) -> Result<Vec<Vec<String>>, String> {
+        let mut values_list = Vec::new();
         loop {
-            match self.advance() {
-                Some(Token::StringLiteral(val)) => values.push(val),
-                Some(Token::Comma) => continue,
-                Some(Token::RightParen) => break,
-                _ => return Err("Syntax error in VALUES list".to_string()),
+            let mut values = Vec::new();
+            self.expect(Token::LeftParen)?;
+            loop {
+                match self.advance() {
+                    Some(Token::StringLiteral(val)) => values.push(val.clone()), // Clone ensures proper type handling
+                    Some(Token::Comma) => continue,
+                    Some(Token::RightParen) => break,
+                    _ => return Err("Syntax error in VALUES list".to_string()),
+                }
+            }
+            values_list.push(values);
+            if let Some(Token::Comma) = self.peek() {
+                self.advance();
+            } else {
+                break;
             }
         }
-        if values.is_empty() {
-            return Err("Expected at least one value in VALUES clause".to_string());
-        }
-        Ok(values)
+        Ok(values_list)
     }
 
     fn parse_assignments(&mut self) -> Result<Vec<(String, String)>, String> {
@@ -153,7 +162,7 @@ impl Parser {
 
     fn expect_identifier(&mut self, error_message: &str) -> Result<String, String> {
         match self.advance() {
-            Some(Token::Identifier(name)) => Ok(name),
+            Some(Token::Identifier(name)) => Ok(name.clone()),
             Some(t) => Err(format!("{} but found {:?}", error_message, t)),
             None => Err(format!("{} but reached end of input", error_message)),
         }
@@ -161,7 +170,7 @@ impl Parser {
 
     fn expect_string_literal(&mut self, error_message: &str) -> Result<String, String> {
         match self.advance() {
-            Some(Token::StringLiteral(value)) => Ok(value),
+            Some(Token::StringLiteral(value)) => Ok(value.clone()),
             Some(t) => Err(format!("{} but found {:?}", error_message, t)),
             None => Err(format!("{} but reached end of input", error_message)),
         }
