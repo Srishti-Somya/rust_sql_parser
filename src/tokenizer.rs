@@ -24,6 +24,8 @@ pub enum Token {
     LessThan,
     GreaterThan,
     Unknown(String),
+    Create,
+    Table,
 }
 
 pub struct Tokenizer {
@@ -131,6 +133,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "VALUES" => Token::Values,
                     "SET" => Token::Set,
                     "WHERE" => Token::Where,
+                    "CREATE" => Token::Create,
+                    "TABLE" => Token::Table,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);

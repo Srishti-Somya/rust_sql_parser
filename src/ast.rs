@@ -4,11 +4,13 @@ pub enum SQLStatement {
     Insert(InsertStatement),
     Update(UpdateStatement),
     Delete(DeleteStatement),
+    CreateTable(CreateTableStatement),
+    
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectStatement {
-    pub columns: Vec<String>,
+    pub columns: Option<Vec<String>>,
     pub table: String,
     pub where_clause: Option<WhereClause>,
 }
@@ -38,4 +40,9 @@ pub struct WhereClause {
     pub column: String,
     pub operator: String,
     pub value: String,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateTableStatement {
+    pub table: String,
+    pub columns: Vec<(String, String)>,
 }

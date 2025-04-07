@@ -1,5 +1,6 @@
 use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, WhereClause};
 use crate::tokenizer::Token;
+use crate::ast::CreateTableStatement;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -17,8 +18,30 @@ impl Parser {
             Some(Token::Insert) => { self.advance(); self.parse_insert() },
             Some(Token::Update) => { self.advance(); self.parse_update() },
             Some(Token::Delete) => { self.advance(); self.parse_delete() },
+            Some(Token::Create) => { self.advance(); self.parse_create_table() },
             _ => Err("Unexpected token at start of statement".to_string()),
         }
+    }
+
+    fn parse_create_table(&mut self) -> Result<SQLStatement, String> {
+        self.expect(Token::Table)?;
+        let table = self.expect_identifier("Expected table name after CREATE TABLE")?;
+        self.expect(Token::LeftParen)?;
+
+        let mut columns = Vec::new();
+        loop {
+            let name = self.expect_identifier("Expected column name")?;
+            let datatype = self.expect_identifier("Expected data type")?;
+            columns.push((name, datatype));
+
+            match self.peek() {
+                Some(Token::Comma) => { self.advance(); }
+                Some(Token::RightParen) => { self.advance(); break; }
+                _ => return Err("Expected ',' or ')' after column definition".to_string()),
+            }
+        }
+
+        Ok(SQLStatement::CreateTable(CreateTableStatement { table, columns }))
     }
 
     fn parse_select(&mut self) -> Result<SQLStatement, String> {
@@ -26,7 +49,11 @@ impl Parser {
         self.expect(Token::From)?;
         let table = self.expect_identifier("Expected table name after FROM")?;
         let where_clause = self.parse_optional_where_clause()?;
-        Ok(SQLStatement::Select(SelectStatement { columns, table, where_clause }))
+        Ok(SQLStatement::Select(SelectStatement {
+            columns: Some(columns), 
+            table,
+            where_clause,
+        }))
     }
 
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
@@ -37,7 +64,7 @@ impl Parser {
         self.expect(Token::RightParen)?;
         self.expect(Token::Values)?;
 
-        let values = self.parse_values_list()?; // Fixed logic
+        let values = self.parse_values_list()?;
         Ok(SQLStatement::Insert(InsertStatement { table, columns, values }))
     }
 
@@ -79,6 +106,13 @@ impl Parser {
 
     fn parse_column_list_until(&mut self, terminator: Token) -> Result<Vec<String>, String> {
         let mut columns = Vec::new();
+
+        // Handle SELECT * FROM ...
+        if let Some(Token::Asterisk) = self.peek() {
+            self.advance();
+            return Ok(vec!["*".to_string()]);
+        }
+
         loop {
             match self.peek() {
                 Some(t) if *t == terminator => break,
@@ -93,9 +127,11 @@ impl Parser {
                 None => return Err("Unexpected end of input in column list".to_string()),
             }
         }
+
         if columns.is_empty() {
             return Err("Expected at least one column".to_string());
         }
+
         Ok(columns)
     }
 
@@ -113,9 +149,11 @@ impl Parser {
                 break;
             }
         }
+
         if values_list.is_empty() {
             return Err("Expected at least one VALUES tuple".to_string());
         }
+
         Ok(values_list)
     }
 
@@ -158,9 +196,11 @@ impl Parser {
                 break;
             }
         }
+
         if assignments.is_empty() {
             return Err("Expected at least one assignment in SET clause".to_string());
         }
+
         Ok(assignments)
     }
 

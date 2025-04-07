@@ -1,4 +1,4 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement};
+use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -19,6 +19,7 @@ impl Database {
             SQLStatement::Insert(stmt) => self.execute_insert(stmt),
             SQLStatement::Update(stmt) => self.execute_update(stmt),
             SQLStatement::Delete(stmt) => self.execute_delete(stmt),
+            SQLStatement::CreateTable(stmt) => self.execute_create_table(stmt),
         }
     }
 
@@ -38,15 +39,24 @@ impl Database {
             return Err("No matching rows found".to_string());
         }
 
-        // Collect selected columns
+        // Handle SELECT *
+        let selected_columns: Vec<String> = match &stmt.columns {
+            Some(cols) if cols.len() == 1 && cols[0] == "*" => {
+                filtered_rows[0].keys().cloned().collect()
+            }
+            Some(cols) => cols.clone(),
+            None => return Err("No columns specified in SELECT statement".to_string()),
+        };
+
+        // Build result string
         let mut result = String::new();
-        result.push_str(&stmt.columns.join(" | "));
+        result.push_str(&selected_columns.join(" | "));
         result.push('\n');
-        result.push_str(&"-".repeat(stmt.columns.join(" | ").len()));
+        result.push_str(&"-".repeat(selected_columns.join(" | ").len()));
         result.push('\n');
 
         for row in filtered_rows {
-            let values: Vec<String> = stmt.columns.iter()
+            let values: Vec<String> = selected_columns.iter()
                 .map(|col| row.get(col).cloned().unwrap_or_default())
                 .collect();
             result.push_str(&values.join(" | "));
@@ -116,5 +126,18 @@ impl Database {
         } else {
             Err("No matching rows found to delete".to_string())
         }
+    }
+
+    fn execute_create_table(&mut self, stmt: CreateTableStatement) -> Result<String, String> {
+        if self.tables.contains_key(&stmt.table) {
+            return Err(format!("Table '{}' already exists", stmt.table));
+        }
+
+        let columns = stmt.columns.iter()
+            .map(|col| col.0.clone())
+            .collect::<Vec<_>>();
+
+        self.tables.insert(stmt.table.clone(), Vec::new());
+        Ok(format!("✅ Table '{}' created with columns: {:?}", stmt.table, columns))
     }
 }
