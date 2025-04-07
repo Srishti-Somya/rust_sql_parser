@@ -6,3 +6,6 @@ SELECT, INSERT, UPDATE, DELETE
 
 Next to do:
 JOIN (INNER, LEFT, RIGHT, FULL) ,  ORDER BY,  GROUP BY,  HAVING,  LIMIT/OFFSET,  ALTER TABLE (ADD, DROP, MODIFY),  CREATE TABLE / DROP TABLE,  DISTINCT keyword in SELECT,  Aggregate Functions (SUM, COUNT, AVG, MIN, MAX)
+
+Implementation
+![alt text](image.png)
