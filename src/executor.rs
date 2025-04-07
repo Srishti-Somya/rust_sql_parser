@@ -1,4 +1,4 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement};
+use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ impl Database {
             SQLStatement::Update(stmt) => self.execute_update(stmt),
             SQLStatement::Delete(stmt) => self.execute_delete(stmt),
             SQLStatement::CreateTable(stmt) => self.execute_create_table(stmt),
+            SQLStatement::AlterTable(stmt) => self.execute_alter_table(stmt),
         }
     }
 
@@ -139,5 +140,16 @@ impl Database {
 
         self.tables.insert(stmt.table.clone(), Vec::new());
         Ok(format!("✅ Table '{}' created with columns: {:?}", stmt.table, columns))
+    }
+    fn execute_alter_table(&mut self, stmt: AlterTableStatement) -> Result<String, String> {
+        let table = self.tables.get_mut(&stmt.table)
+            .ok_or_else(|| format!("Table '{}' not found", stmt.table))?;
+    
+        // Add the new column with empty string to all existing rows
+        for row in table.iter_mut() {
+            row.insert(stmt.new_column.clone(), "".to_string());
+        }
+    
+        Ok(format!("✅ Column '{}' added to table '{}'", stmt.new_column, stmt.table))
     }
 }

@@ -1,4 +1,4 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, WhereClause};
+use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, WhereClause, AlterTableStatement};
 use crate::tokenizer::Token;
 use crate::ast::CreateTableStatement;
 
@@ -14,11 +14,12 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<SQLStatement, String> {
         match self.peek() {
-            Some(Token::Select) => { self.advance(); self.parse_select() },
-            Some(Token::Insert) => { self.advance(); self.parse_insert() },
-            Some(Token::Update) => { self.advance(); self.parse_update() },
-            Some(Token::Delete) => { self.advance(); self.parse_delete() },
-            Some(Token::Create) => { self.advance(); self.parse_create_table() },
+            Some(Token::Select) => { self.advance(); self.parse_select() }
+            Some(Token::Insert) => { self.advance(); self.parse_insert() }
+            Some(Token::Update) => { self.advance(); self.parse_update() }
+            Some(Token::Delete) => { self.advance(); self.parse_delete() }
+            Some(Token::Create) => { self.advance(); self.parse_create_table() }
+            Some(Token::Alter) => { self.advance(); self.parse_alter_table() }
             _ => Err("Unexpected token at start of statement".to_string()),
         }
     }
@@ -42,6 +43,23 @@ impl Parser {
         }
 
         Ok(SQLStatement::CreateTable(CreateTableStatement { table, columns }))
+    }
+
+    fn parse_alter_table(&mut self) -> Result<SQLStatement, String> {
+        self.expect(Token::Table)?;
+        let table = self.expect_identifier("Expected table name after ALTER TABLE")?;
+        self.expect(Token::Add)?;
+        let column = self.expect_identifier("Expected column name after ADD")?;
+
+        // Optional: Skip column type (e.g., INT, TEXT, etc.)
+        if let Some(Token::Identifier(_)) = self.peek() {
+            self.advance(); // just skip type for now
+        }
+
+        Ok(SQLStatement::AlterTable(AlterTableStatement {
+            table,
+            new_column: column,
+        }))
     }
 
     fn parse_select(&mut self) -> Result<SQLStatement, String> {
@@ -107,7 +125,6 @@ impl Parser {
     fn parse_column_list_until(&mut self, terminator: Token) -> Result<Vec<String>, String> {
         let mut columns = Vec::new();
 
-        // Handle SELECT * FROM ...
         if let Some(Token::Asterisk) = self.peek() {
             self.advance();
             return Ok(vec!["*".to_string()]);

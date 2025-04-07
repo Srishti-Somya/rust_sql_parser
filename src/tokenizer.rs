@@ -26,6 +26,8 @@ pub enum Token {
     Unknown(String),
     Create,
     Table,
+    Alter,
+    Add,
 }
 
 pub struct Tokenizer {
@@ -135,6 +137,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "WHERE" => Token::Where,
                     "CREATE" => Token::Create,
                     "TABLE" => Token::Table,
+                    "ALTER" => Token::Alter,
+                    "ADD" => Token::Add,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);

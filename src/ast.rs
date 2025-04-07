@@ -5,7 +5,7 @@ pub enum SQLStatement {
     Update(UpdateStatement),
     Delete(DeleteStatement),
     CreateTable(CreateTableStatement),
-    
+    AlterTable(AlterTableStatement), 
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,4 +45,10 @@ pub struct WhereClause {
 pub struct CreateTableStatement {
     pub table: String,
     pub columns: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlterTableStatement {
+    pub table: String,
+    pub new_column: String,
 }
