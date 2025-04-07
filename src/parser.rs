@@ -22,21 +22,22 @@ impl Parser {
     }
 
     fn parse_select(&mut self) -> Result<SQLStatement, String> {
-        let columns = self.parse_column_list()?;
+        let columns = self.parse_column_list_until(Token::From)?;
         self.expect(Token::From)?;
         let table = self.expect_identifier("Expected table name after FROM")?;
         let where_clause = self.parse_optional_where_clause()?;
         Ok(SQLStatement::Select(SelectStatement { columns, table, where_clause }))
     }
+
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Into)?;
         let table = self.expect_identifier("Expected table name after INSERT INTO")?;
         self.expect(Token::LeftParen)?;
-        let columns = self.parse_column_list()?;
+        let columns = self.parse_column_list_until(Token::RightParen)?;
         self.expect(Token::RightParen)?;
         self.expect(Token::Values)?;
-        
-        let values = self.parse_values_list()?; // Ensure this returns Vec<String> instead of Vec<Vec<String>>
+
+        let values = self.parse_values_list()?; // Fixed logic
         Ok(SQLStatement::Insert(InsertStatement { table, columns, values }))
     }
 
@@ -55,6 +56,15 @@ impl Parser {
         Ok(SQLStatement::Delete(DeleteStatement { table, where_clause }))
     }
 
+    fn parse_optional_where_clause(&mut self) -> Result<Option<WhereClause>, String> {
+        if let Some(Token::Where) = self.peek() {
+            self.advance();
+            Ok(Some(self.parse_where_clause()?))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn parse_where_clause(&mut self) -> Result<WhereClause, String> {
         let column = self.expect_identifier("Expected column name in WHERE clause")?;
         let operator = match self.advance() {
@@ -66,28 +76,21 @@ impl Parser {
         let value = self.expect_string_literal("Expected value in WHERE clause")?;
         Ok(WhereClause { column, operator, value })
     }
-    
-    fn parse_optional_where_clause(&mut self) -> Result<Option<WhereClause>, String> {
-        if let Some(Token::Where) = self.peek() {
-            self.advance(); // This is a mutable borrow
-            Ok(Some(self.parse_where_clause()?))
-        } else {
-            Ok(None)
-        }
-    }
 
-    fn parse_column_list(&mut self) -> Result<Vec<String>, String> {
+    fn parse_column_list_until(&mut self, terminator: Token) -> Result<Vec<String>, String> {
         let mut columns = Vec::new();
         loop {
             match self.peek() {
-                Some(Token::Identifier(col)) => {
+                Some(t) if *t == terminator => break,
+                Some(Token::Identifier(name)) => {
+                    columns.push(name.clone());
                     self.advance();
-                    columns.push(col.clone()); // Ensure correct type
                 }
                 Some(Token::Comma) => {
                     self.advance();
                 }
-                _ => break,
+                Some(t) => return Err(format!("Unexpected token in column list: {:?}", t)),
+                None => return Err("Unexpected end of input in column list".to_string()),
             }
         }
         if columns.is_empty() {
@@ -99,24 +102,47 @@ impl Parser {
     fn parse_values_list(&mut self) -> Result<Vec<Vec<String>>, String> {
         let mut values_list = Vec::new();
         loop {
-            let mut values = Vec::new();
-            self.expect(Token::LeftParen)?;
-            loop {
-                match self.advance() {
-                    Some(Token::StringLiteral(val)) => values.push(val.clone()), // Clone ensures proper type handling
-                    Some(Token::Comma) => continue,
-                    Some(Token::RightParen) => break,
-                    _ => return Err("Syntax error in VALUES list".to_string()),
-                }
+            if self.peek() != Some(&Token::LeftParen) {
+                break;
             }
-            values_list.push(values);
+            let tuple = self.parse_value_tuple()?;
+            values_list.push(tuple);
             if let Some(Token::Comma) = self.peek() {
                 self.advance();
             } else {
                 break;
             }
         }
+        if values_list.is_empty() {
+            return Err("Expected at least one VALUES tuple".to_string());
+        }
         Ok(values_list)
+    }
+
+    fn parse_value_tuple(&mut self) -> Result<Vec<String>, String> {
+        let mut values = Vec::new();
+        self.expect(Token::LeftParen)?;
+        loop {
+            match self.peek() {
+                Some(Token::StringLiteral(val)) => {
+                    values.push(val.clone());
+                    self.advance();
+                }
+                Some(Token::Comma) => {
+                    self.advance();
+                }
+                Some(Token::RightParen) => {
+                    self.advance();
+                    break;
+                }
+                Some(t) => return Err(format!("Unexpected token in VALUES tuple: {:?}", t)),
+                None => return Err("Unexpected end of input in VALUES tuple".to_string()),
+            }
+        }
+        if values.is_empty() {
+            return Err("Empty VALUES tuple is not allowed".to_string());
+        }
+        Ok(values)
     }
 
     fn parse_assignments(&mut self) -> Result<Vec<(String, String)>, String> {
@@ -177,7 +203,6 @@ impl Parser {
     }
 }
 
-/// Public function to expose parsing functionality
 pub fn parse_sql(tokens: Vec<Token>) -> Result<SQLStatement, String> {
     let mut parser = Parser::new(tokens);
     parser.parse()

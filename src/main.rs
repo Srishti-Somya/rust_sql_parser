@@ -1,12 +1,16 @@
 mod tokenizer;
-mod ast;
 mod parser;
+mod ast;
+mod executor;
 
 use tokenizer::Tokenizer;
 use parser::Parser;
+use executor::Database;
 use std::io::{self, Write};
 
 fn main() {
+    let mut db = Database::new(); // In-memory DB instance
+
     loop {
         print!("sql> ");
         io::stdout().flush().unwrap();
@@ -16,13 +20,18 @@ fn main() {
         let query = query.trim();
 
         if query.eq_ignore_ascii_case("exit") {
-            println!("Exiting SQL Parser...");
+            println!("👋 Exiting SQL Parser...");
             break;
         }
 
         match execute_query(query) {
-            Ok(statement) => println!("Parsed AST: {:?}", statement),
-            Err(e) => eprintln!("Error: {}", e),
+            Ok(statement) => {
+                match db.execute(statement) {
+                    Ok(result) => println!("{}", result),
+                    Err(e) => eprintln!(" Execution error: {}", e),
+                }
+            },
+            Err(e) => eprintln!(" Parse error: {}", e),
         }
     }
 }
@@ -30,7 +39,7 @@ fn main() {
 fn execute_query(query: &str) -> Result<ast::SQLStatement, String> {
     let mut tokenizer = Tokenizer::new(query);
     let tokens = tokenizer.tokenize()?;
-    
+
     let mut parser = Parser::new(tokens);
     parser.parse()
 }
