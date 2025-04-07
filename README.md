@@ -8,4 +8,4 @@ Next to do:
 JOIN (INNER, LEFT, RIGHT, FULL) ,  ORDER BY,  GROUP BY,  HAVING,  LIMIT/OFFSET,  ALTER TABLE (ADD, DROP, MODIFY), DROP TABLE,  DISTINCT keyword in SELECT,  Aggregate Functions (SUM, COUNT, AVG, MIN, MAX)
 
 Implementation
-![alt text](image.png)
+![execution](image-1.png)
