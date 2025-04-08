@@ -8,8 +8,7 @@ Run the following, after cloning:
 ![execution](image-1.png)
 
 
-update : implemented little, but check not done, throwing error, inprogress of resolving
-implemented :
+update : implemented little: 
 SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE(ADD)
 
 Next to do:
