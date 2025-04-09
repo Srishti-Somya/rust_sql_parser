@@ -81,7 +81,7 @@ impl Database {
             .collect();
 
         table.push(new_row);
-        Ok("✅ Insert successful".to_string())
+        Ok(" Insert successful".to_string())
     }
 
     fn execute_update(&mut self, stmt: UpdateStatement) -> Result<String, String> {
@@ -102,7 +102,7 @@ impl Database {
         }
 
         if updated > 0 {
-            Ok(format!("✅ Updated {} row(s)", updated))
+            Ok(format!(" Updated {} row(s)", updated))
         } else {
             Err("No rows updated".to_string())
         }
@@ -139,7 +139,7 @@ impl Database {
             .collect::<Vec<_>>();
 
         self.tables.insert(stmt.table.clone(), Vec::new());
-        Ok(format!("✅ Table '{}' created with columns: {:?}", stmt.table, columns))
+        Ok(format!(" Table '{}' created with columns: {:?}", stmt.table, columns))
     }
     fn execute_alter_table(&mut self, stmt: AlterTableStatement) -> Result<String, String> {
         let table = self.tables.get_mut(&stmt.table)
@@ -150,6 +150,6 @@ impl Database {
             row.insert(stmt.new_column.clone(), "".to_string());
         }
     
-        Ok(format!("✅ Column '{}' added to table '{}'", stmt.new_column, stmt.table))
+        Ok(format!(" Column '{}' added to table '{}'", stmt.new_column, stmt.table))
     }
 }
