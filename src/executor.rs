@@ -1,4 +1,4 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement, DropTableStatement};
+use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -22,6 +22,7 @@ impl Database {
             SQLStatement::CreateTable(stmt) => self.execute_create_table(stmt),
             SQLStatement::AlterTable(stmt) => self.execute_alter_table(stmt),
             SQLStatement::DropTable(stmt) => self.execute_drop_table(stmt),
+            
         }
     }
 
@@ -143,16 +144,31 @@ impl Database {
         Ok(format!(" Table '{}' created with columns: {:?}", stmt.table, columns))
     }
     fn execute_alter_table(&mut self, stmt: AlterTableStatement) -> Result<String, String> {
-        let table = self.tables.get_mut(&stmt.table)
-            .ok_or_else(|| format!("Table '{}' not found", stmt.table))?;
-    
-        // Add the new column with empty string to all existing rows
-        for row in table.iter_mut() {
-            row.insert(stmt.new_column.clone(), "".to_string());
+        match self.tables.get_mut(&stmt.table) {
+            Some(table_data) => {
+                match stmt.action {
+                    AlterAction::AddColumn(ref name) => {
+                        for row in table_data.iter_mut() {
+                            row.insert(name.clone(), String::new());
+                        }
+                        Ok(format!(" Column '{}' added to '{}'", name, stmt.table))
+                    }
+                    AlterAction::DropColumn(ref name) => {
+                        for row in table_data.iter_mut() {
+                            row.remove(name);
+                        }
+                        Ok(format!(" Column '{}' dropped from '{}'", name, stmt.table))
+                    }
+                    AlterAction::ModifyColumn(ref name, ref new_type) => {
+                        // This is just a placeholder, since we don’t store types yet
+                        Ok(format!(" Column '{}' modified to type '{}' in '{}'", name, new_type, stmt.table))
+                    }
+                }
+            }
+            None => Err(format!("Table '{}' not found", stmt.table)),
         }
-    
-        Ok(format!(" Column '{}' added to table '{}'", stmt.new_column, stmt.table))
     }
+    
     fn execute_drop_table(&mut self, stmt: DropTableStatement) -> Result<String, String> {
         if self.tables.remove(&stmt.table).is_some() {
             Ok(format!("Table '{}' dropped successfully", stmt.table))

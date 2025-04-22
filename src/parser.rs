@@ -7,7 +7,8 @@ use crate::ast::{
     WhereClause,
     CreateTableStatement,
     AlterTableStatement,
-    DropTableStatement, // NEW
+    DropTableStatement,
+    AlterAction,
 };
 use crate::tokenizer::Token;
 
@@ -58,18 +59,39 @@ impl Parser {
     fn parse_alter_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;
         let table = self.expect_identifier("Expected table name after ALTER TABLE")?;
-        self.expect(Token::Add)?;
-        let column = self.expect_identifier("Expected column name after ADD")?;
-
-        if let Some(Token::Identifier(_)) = self.peek() {
-            self.advance();
+    
+        match self.advance() {
+            Some(Token::Add) => {
+                let column = self.expect_identifier("Expected column name after ADD")?;
+                // Optionally skip data type
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance();
+                }
+                Ok(SQLStatement::AlterTable(AlterTableStatement {
+                    table,
+                    action: AlterAction::AddColumn(column),
+                }))
+            }
+            Some(Token::Drop) => {
+                let column = self.expect_identifier("Expected column name after DROP")?;
+                Ok(SQLStatement::AlterTable(AlterTableStatement {
+                    table,
+                    action: AlterAction::DropColumn(column),
+                }))
+            }
+            Some(Token::Modify) => {
+                let column = self.expect_identifier("Expected column name after MODIFY")?;
+                let new_type = self.expect_identifier("Expected new data type after column name")?;
+                Ok(SQLStatement::AlterTable(AlterTableStatement {
+                    table,
+                    action: AlterAction::ModifyColumn(column, new_type),
+                }))
+            }
+            Some(t) => Err(format!("Unexpected token in ALTER TABLE: {:?}", t)),
+            None => Err("Unexpected end of input in ALTER TABLE".to_string()),
         }
-
-        Ok(SQLStatement::AlterTable(AlterTableStatement {
-            table,
-            new_column: column,
-        }))
     }
+    
 
     fn parse_drop_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;

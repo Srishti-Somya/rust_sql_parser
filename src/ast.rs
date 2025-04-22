@@ -49,10 +49,18 @@ pub struct CreateTableStatement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum AlterAction {
+    AddColumn(String),
+    DropColumn(String),
+    ModifyColumn(String, String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AlterTableStatement {
     pub table: String,
-    pub new_column: String,
+    pub action: AlterAction,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropTableStatement {
