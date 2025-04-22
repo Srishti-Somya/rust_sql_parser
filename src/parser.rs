@@ -9,6 +9,7 @@ use crate::ast::{
     AlterTableStatement,
     DropTableStatement,
     AlterAction,
+    OrderByClause,
 };
 use crate::tokenizer::Token;
 
@@ -104,12 +105,40 @@ impl Parser {
         self.expect(Token::From)?;
         let table = self.expect_identifier("Expected table name after FROM")?;
         let where_clause = self.parse_optional_where_clause()?;
+        let order_by = self.parse_optional_order_by()?; // ← NEW LINE
+    
         Ok(SQLStatement::Select(SelectStatement {
-            columns: Some(columns), 
+            columns: Some(columns),
             table,
             where_clause,
+            order_by,
         }))
+    }    
+
+    fn parse_optional_order_by(&mut self) -> Result<Option<OrderByClause>, String> {
+        if let Some(Token::Order) = self.peek() {
+            self.advance();
+            self.expect(Token::By)?;
+            let column = self.expect_identifier("Expected column name after ORDER BY")?;
+    
+            let descending = match self.peek() {
+                Some(Token::Desc) => {
+                    self.advance();
+                    true
+                }
+                Some(Token::Asc) => {
+                    self.advance();
+                    false
+                }
+                _ => false,
+            };
+    
+            Ok(Some(OrderByClause { column, descending }))
+        } else {
+            Ok(None)
+        }
     }
+    
 
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Into)?;

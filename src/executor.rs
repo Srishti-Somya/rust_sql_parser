@@ -1,4 +1,7 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction};
+use crate::ast::{
+    SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement,
+    CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction, OrderByClause,
+};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -22,7 +25,6 @@ impl Database {
             SQLStatement::CreateTable(stmt) => self.execute_create_table(stmt),
             SQLStatement::AlterTable(stmt) => self.execute_alter_table(stmt),
             SQLStatement::DropTable(stmt) => self.execute_drop_table(stmt),
-            
         }
     }
 
@@ -30,13 +32,27 @@ impl Database {
         let table = self.tables.get(&stmt.table)
             .ok_or_else(|| format!("Table '{}' not found", stmt.table))?;
 
-        let filtered_rows: Vec<&HashMap<String, String>> = table.iter()
+        let mut filtered_rows: Vec<&HashMap<String, String>> = table.iter()
             .filter(|row| {
                 stmt.where_clause.as_ref().map_or(true, |where_clause| {
                     row.get(&where_clause.column).map_or(false, |value| value == &where_clause.value)
                 })
             })
             .collect();
+
+        // ORDER BY logic
+        if let Some(order) = &stmt.order_by {
+            let empty = String::new(); // to avoid temporary value drop
+            filtered_rows.sort_by(|a, b| {
+                let val_a = a.get(&order.column).unwrap_or(&empty);
+                let val_b = b.get(&order.column).unwrap_or(&empty);
+                if order.descending {
+                    val_b.cmp(val_a)
+                } else {
+                    val_a.cmp(val_b)
+                }
+            });
+        }
 
         if filtered_rows.is_empty() {
             return Err("No matching rows found".to_string());
@@ -51,7 +67,7 @@ impl Database {
             None => return Err("No columns specified in SELECT statement".to_string()),
         };
 
-        // Build result string
+        // Format result
         let mut result = String::new();
         result.push_str(&selected_columns.join(" | "));
         result.push('\n');
@@ -83,7 +99,7 @@ impl Database {
             .collect();
 
         table.push(new_row);
-        Ok(" Insert successful".to_string())
+        Ok("✅ Insert successful".to_string())
     }
 
     fn execute_update(&mut self, stmt: UpdateStatement) -> Result<String, String> {
@@ -104,7 +120,7 @@ impl Database {
         }
 
         if updated > 0 {
-            Ok(format!(" Updated {} row(s)", updated))
+            Ok(format!("✅ Updated {} row(s)", updated))
         } else {
             Err("No rows updated".to_string())
         }
@@ -141,8 +157,9 @@ impl Database {
             .collect::<Vec<_>>();
 
         self.tables.insert(stmt.table.clone(), Vec::new());
-        Ok(format!(" Table '{}' created with columns: {:?}", stmt.table, columns))
+        Ok(format!("🛠️ Table '{}' created with columns: {:?}", stmt.table, columns))
     }
+
     fn execute_alter_table(&mut self, stmt: AlterTableStatement) -> Result<String, String> {
         match self.tables.get_mut(&stmt.table) {
             Some(table_data) => {
@@ -151,30 +168,28 @@ impl Database {
                         for row in table_data.iter_mut() {
                             row.insert(name.clone(), String::new());
                         }
-                        Ok(format!(" Column '{}' added to '{}'", name, stmt.table))
+                        Ok(format!("➕ Column '{}' added to '{}'", name, stmt.table))
                     }
                     AlterAction::DropColumn(ref name) => {
                         for row in table_data.iter_mut() {
                             row.remove(name);
                         }
-                        Ok(format!(" Column '{}' dropped from '{}'", name, stmt.table))
+                        Ok(format!("➖ Column '{}' dropped from '{}'", name, stmt.table))
                     }
                     AlterAction::ModifyColumn(ref name, ref new_type) => {
-                        // This is just a placeholder, since we don’t store types yet
-                        Ok(format!(" Column '{}' modified to type '{}' in '{}'", name, new_type, stmt.table))
+                        Ok(format!("🔧 Column '{}' modified to type '{}' in '{}'", name, new_type, stmt.table))
                     }
                 }
             }
             None => Err(format!("Table '{}' not found", stmt.table)),
         }
     }
-    
+
     fn execute_drop_table(&mut self, stmt: DropTableStatement) -> Result<String, String> {
         if self.tables.remove(&stmt.table).is_some() {
-            Ok(format!("Table '{}' dropped successfully", stmt.table))
+            Ok(format!("🗑️ Table '{}' dropped successfully", stmt.table))
         } else {
             Err(format!("Table '{}' does not exist", stmt.table))
         }
     }
-    
 }

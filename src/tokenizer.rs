@@ -30,6 +30,10 @@ pub enum Token {
     Add,
     Drop,
     Modify,
+    Order,
+    By,
+    Desc,
+    Asc,
 }
 
 pub struct Tokenizer {
@@ -143,6 +147,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "ADD" => Token::Add,
                     "DROP"   => Token::Drop,
                     "MODIFY" => Token::Modify,
+                    "ORDER" => Token::Order,
+                    "BY"    => Token::By,
+                    "DESC"  => Token::Desc,
+                    "ASC"   => Token::Asc,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);

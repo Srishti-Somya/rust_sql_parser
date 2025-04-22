@@ -14,6 +14,7 @@ pub struct SelectStatement {
     pub columns: Option<Vec<String>>,
     pub table: String,
     pub where_clause: Option<WhereClause>,
+    pub order_by: Option<OrderByClause>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,4 +66,10 @@ pub struct AlterTableStatement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropTableStatement {
     pub table: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrderByClause {
+    pub column: String,
+    pub descending: bool,
 }
