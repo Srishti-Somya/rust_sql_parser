@@ -1,4 +1,4 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement};
+use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, CreateTableStatement, AlterTableStatement, DropTableStatement};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -21,6 +21,7 @@ impl Database {
             SQLStatement::Delete(stmt) => self.execute_delete(stmt),
             SQLStatement::CreateTable(stmt) => self.execute_create_table(stmt),
             SQLStatement::AlterTable(stmt) => self.execute_alter_table(stmt),
+            SQLStatement::DropTable(stmt) => self.execute_drop_table(stmt),
         }
     }
 
@@ -152,4 +153,12 @@ impl Database {
     
         Ok(format!(" Column '{}' added to table '{}'", stmt.new_column, stmt.table))
     }
+    fn execute_drop_table(&mut self, stmt: DropTableStatement) -> Result<String, String> {
+        if self.tables.remove(&stmt.table).is_some() {
+            Ok(format!("Table '{}' dropped successfully", stmt.table))
+        } else {
+            Err(format!("Table '{}' does not exist", stmt.table))
+        }
+    }
+    
 }

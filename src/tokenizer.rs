@@ -28,6 +28,7 @@ pub enum Token {
     Table,
     Alter,
     Add,
+    Drop,
 }
 
 pub struct Tokenizer {
@@ -139,6 +140,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "TABLE" => Token::Table,
                     "ALTER" => Token::Alter,
                     "ADD" => Token::Add,
+                    "DROP"   => Token::Drop,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);

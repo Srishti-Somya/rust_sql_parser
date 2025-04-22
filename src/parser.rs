@@ -1,6 +1,15 @@
-use crate::ast::{SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement, WhereClause, AlterTableStatement};
+use crate::ast::{
+    SQLStatement,
+    SelectStatement,
+    InsertStatement,
+    UpdateStatement,
+    DeleteStatement,
+    WhereClause,
+    CreateTableStatement,
+    AlterTableStatement,
+    DropTableStatement, // NEW
+};
 use crate::tokenizer::Token;
-use crate::ast::CreateTableStatement;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -20,6 +29,7 @@ impl Parser {
             Some(Token::Delete) => { self.advance(); self.parse_delete() }
             Some(Token::Create) => { self.advance(); self.parse_create_table() }
             Some(Token::Alter) => { self.advance(); self.parse_alter_table() }
+            Some(Token::Drop)   => { self.advance(); self.parse_drop_table() } 
             _ => Err("Unexpected token at start of statement".to_string()),
         }
     }
@@ -51,15 +61,20 @@ impl Parser {
         self.expect(Token::Add)?;
         let column = self.expect_identifier("Expected column name after ADD")?;
 
-        // Optional: Skip column type (e.g., INT, TEXT, etc.)
         if let Some(Token::Identifier(_)) = self.peek() {
-            self.advance(); // just skip type for now
+            self.advance();
         }
 
         Ok(SQLStatement::AlterTable(AlterTableStatement {
             table,
             new_column: column,
         }))
+    }
+
+    fn parse_drop_table(&mut self) -> Result<SQLStatement, String> {
+        self.expect(Token::Table)?;
+        let table = self.expect_identifier("Expected table name after DROP TABLE")?;
+        Ok(SQLStatement::DropTable(DropTableStatement { table }))
     }
 
     fn parse_select(&mut self) -> Result<SQLStatement, String> {

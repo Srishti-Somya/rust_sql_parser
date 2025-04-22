@@ -6,6 +6,7 @@ pub enum SQLStatement {
     Delete(DeleteStatement),
     CreateTable(CreateTableStatement),
     AlterTable(AlterTableStatement), 
+    DropTable(DropTableStatement),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,4 +52,9 @@ pub struct CreateTableStatement {
 pub struct AlterTableStatement {
     pub table: String,
     pub new_column: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropTableStatement {
+    pub table: String,
 }
