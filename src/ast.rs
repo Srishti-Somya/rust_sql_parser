@@ -11,11 +11,13 @@ pub enum SQLStatement {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectStatement {
-    pub columns: Option<Vec<String>>,
+    pub columns: Vec<ColumnExpr>, // NOT Option<>
     pub table: String,
     pub where_clause: Option<WhereClause>,
     pub order_by: Option<OrderByClause>,
+    pub group_by: Option<Vec<String>>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InsertStatement {
@@ -73,3 +75,16 @@ pub struct OrderByClause {
     pub column: String,
     pub descending: bool,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColumnExpr {
+    Column(String),
+    Count(String),
+    Sum(String),
+    Avg(String),
+    Min(String),
+    Max(String),
+    CountAll,
+    All,
+}
+

@@ -10,6 +10,7 @@ use crate::ast::{
     DropTableStatement,
     AlterAction,
     OrderByClause,
+    ColumnExpr,
 };
 use crate::tokenizer::Token;
 
@@ -36,6 +37,24 @@ impl Parser {
         }
     }
 
+    fn parse_select(&mut self) -> Result<SQLStatement, String> {
+        let columns  = self.parse_column_expr_list(Token::From)?;
+        self.expect(Token::From)?;
+        let table    = self.expect_identifier("Expected table name after FROM")?;
+        let where_cl = self.parse_optional_where_clause()?;
+        let group_by = self.parse_optional_group_by()?;
+        let order_by = self.parse_optional_order_by()?;
+    
+        Ok(SQLStatement::Select(SelectStatement {
+            columns, 
+            table,
+            where_clause : where_cl,
+            order_by,
+            group_by: None, // you can add group_by parsing later
+        }))        
+    }
+    
+
     fn parse_create_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;
         let table = self.expect_identifier("Expected table name after CREATE TABLE")?;
@@ -60,13 +79,12 @@ impl Parser {
     fn parse_alter_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;
         let table = self.expect_identifier("Expected table name after ALTER TABLE")?;
-    
+
         match self.advance() {
             Some(Token::Add) => {
                 let column = self.expect_identifier("Expected column name after ADD")?;
-                // Optionally skip data type
                 if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance();
+                    self.advance(); // optionally consume data type
                 }
                 Ok(SQLStatement::AlterTable(AlterTableStatement {
                     table,
@@ -82,7 +100,7 @@ impl Parser {
             }
             Some(Token::Modify) => {
                 let column = self.expect_identifier("Expected column name after MODIFY")?;
-                let new_type = self.expect_identifier("Expected new data type after column name")?;
+                let new_type = self.expect_identifier("Expected new data type after column")?;
                 Ok(SQLStatement::AlterTable(AlterTableStatement {
                     table,
                     action: AlterAction::ModifyColumn(column, new_type),
@@ -92,7 +110,6 @@ impl Parser {
             None => Err("Unexpected end of input in ALTER TABLE".to_string()),
         }
     }
-    
 
     fn parse_drop_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;
@@ -100,45 +117,101 @@ impl Parser {
         Ok(SQLStatement::DropTable(DropTableStatement { table }))
     }
 
-    fn parse_select(&mut self) -> Result<SQLStatement, String> {
-        let columns = self.parse_column_list_until(Token::From)?;
-        self.expect(Token::From)?;
-        let table = self.expect_identifier("Expected table name after FROM")?;
-        let where_clause = self.parse_optional_where_clause()?;
-        let order_by = self.parse_optional_order_by()?; // ← NEW LINE
-    
-        Ok(SQLStatement::Select(SelectStatement {
-            columns: Some(columns),
-            table,
-            where_clause,
-            order_by,
-        }))
-    }    
-
     fn parse_optional_order_by(&mut self) -> Result<Option<OrderByClause>, String> {
         if let Some(Token::Order) = self.peek() {
             self.advance();
             self.expect(Token::By)?;
             let column = self.expect_identifier("Expected column name after ORDER BY")?;
-    
+
             let descending = match self.peek() {
-                Some(Token::Desc) => {
-                    self.advance();
-                    true
-                }
-                Some(Token::Asc) => {
-                    self.advance();
-                    false
-                }
+                Some(Token::Desc) => { self.advance(); true },
+                Some(Token::Asc)  => { self.advance(); false },
                 _ => false,
             };
-    
+
             Ok(Some(OrderByClause { column, descending }))
         } else {
             Ok(None)
         }
     }
-    
+    fn parse_optional_group_by(&mut self) -> Result<Option<Vec<String>>, String> {
+        if let Some(Token::Group) = self.peek() {
+            self.advance();
+            self.expect(Token::By)?;
+            let mut cols = Vec::new();
+            // read comma‑separated identifiers
+            loop {
+                let c = self.expect_identifier("Expected column name after GROUP BY")?;
+                cols.push(c);
+                if let Some(Token::Comma) = self.peek() {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            Ok(Some(cols))
+        } else {
+            Ok(None)
+        }
+    }    
+
+    fn parse_column_expr_list(&mut self, until: Token) -> Result<Vec<ColumnExpr>, String> {
+        let mut columns = Vec::new();
+
+        loop {
+            match self.peek() {
+                Some(t) if *t == until => break,
+                Some(Token::Asterisk) => {
+                    self.advance();
+                    columns.push(ColumnExpr::All);
+                }
+                Some(Token::Identifier(func_or_col)) => {
+                    let ident = func_or_col.clone();
+                    self.advance();
+
+                    // Check if aggregate function
+                    if self.peek() == Some(&Token::LeftParen) {
+                        self.advance(); // skip '('
+
+                        let inner_col = match self.advance() {
+                            Some(Token::Identifier(name)) => name.clone(),
+                            Some(Token::Asterisk) if ident.to_uppercase() == "COUNT" => {
+                                self.expect(Token::RightParen)?;
+                                columns.push(ColumnExpr::CountAll);
+                                if self.peek() == Some(&Token::Comma) {
+                                    self.advance();
+                                }
+                                continue;
+                            }
+                            _ => return Err("Expected column name inside function call".to_string()),
+                        };
+
+                        self.expect(Token::RightParen)?;
+
+                        let expr = match ident.to_uppercase().as_str() {
+                            "COUNT" => ColumnExpr::Count(inner_col),
+                            "SUM"   => ColumnExpr::Sum(inner_col),
+                            "AVG"   => ColumnExpr::Avg(inner_col),
+                            "MIN"   => ColumnExpr::Min(inner_col),
+                            "MAX"   => ColumnExpr::Max(inner_col),
+                            _ => return Err(format!("Unknown function '{}'", ident)),
+                        };
+
+                        columns.push(expr);
+                    } else {
+                        columns.push(ColumnExpr::Column(ident));
+                    }
+                }
+                Some(Token::Comma) => {
+                    self.advance();
+                }
+                Some(t) => return Err(format!("Unexpected token in column list: {:?}", t)),
+                None => break,
+            }
+        }
+
+        Ok(columns)
+    }
 
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Into)?;
@@ -150,6 +223,61 @@ impl Parser {
 
         let values = self.parse_values_list()?;
         Ok(SQLStatement::Insert(InsertStatement { table, columns, values }))
+    }
+
+    fn parse_column_list_until(&mut self, terminator: Token) -> Result<Vec<String>, String> {
+        let mut columns = Vec::new();
+        loop {
+            match self.peek() {
+                Some(t) if *t == terminator => break,
+                Some(Token::Identifier(name)) => {
+                    columns.push(name.clone());
+                    self.advance();
+                }
+                Some(Token::Comma) => { self.advance(); }
+                Some(t) => return Err(format!("Unexpected token in column list: {:?}", t)),
+                None => return Err("Unexpected end of input in column list".to_string()),
+            }
+        }
+        Ok(columns)
+    }
+
+    fn parse_values_list(&mut self) -> Result<Vec<Vec<String>>, String> {
+        let mut values_list = Vec::new();
+        loop {
+            if self.peek() != Some(&Token::LeftParen) {
+                break;
+            }
+            let tuple = self.parse_value_tuple()?;
+            values_list.push(tuple);
+            if let Some(Token::Comma) = self.peek() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(values_list)
+    }
+
+    fn parse_value_tuple(&mut self) -> Result<Vec<String>, String> {
+        let mut values = Vec::new();
+        self.expect(Token::LeftParen)?;
+        loop {
+            match self.peek() {
+                Some(Token::StringLiteral(val)) => {
+                    values.push(val.clone());
+                    self.advance();
+                }
+                Some(Token::Comma) => { self.advance(); }
+                Some(Token::RightParen) => {
+                    self.advance();
+                    break;
+                }
+                Some(t) => return Err(format!("Unexpected token in VALUES tuple: {:?}", t)),
+                None => return Err("Unexpected end of input in VALUES tuple".to_string()),
+            }
+        }
+        Ok(values)
     }
 
     fn parse_update(&mut self) -> Result<SQLStatement, String> {
@@ -188,84 +316,6 @@ impl Parser {
         Ok(WhereClause { column, operator, value })
     }
 
-    fn parse_column_list_until(&mut self, terminator: Token) -> Result<Vec<String>, String> {
-        let mut columns = Vec::new();
-
-        if let Some(Token::Asterisk) = self.peek() {
-            self.advance();
-            return Ok(vec!["*".to_string()]);
-        }
-
-        loop {
-            match self.peek() {
-                Some(t) if *t == terminator => break,
-                Some(Token::Identifier(name)) => {
-                    columns.push(name.clone());
-                    self.advance();
-                }
-                Some(Token::Comma) => {
-                    self.advance();
-                }
-                Some(t) => return Err(format!("Unexpected token in column list: {:?}", t)),
-                None => return Err("Unexpected end of input in column list".to_string()),
-            }
-        }
-
-        if columns.is_empty() {
-            return Err("Expected at least one column".to_string());
-        }
-
-        Ok(columns)
-    }
-
-    fn parse_values_list(&mut self) -> Result<Vec<Vec<String>>, String> {
-        let mut values_list = Vec::new();
-        loop {
-            if self.peek() != Some(&Token::LeftParen) {
-                break;
-            }
-            let tuple = self.parse_value_tuple()?;
-            values_list.push(tuple);
-            if let Some(Token::Comma) = self.peek() {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-
-        if values_list.is_empty() {
-            return Err("Expected at least one VALUES tuple".to_string());
-        }
-
-        Ok(values_list)
-    }
-
-    fn parse_value_tuple(&mut self) -> Result<Vec<String>, String> {
-        let mut values = Vec::new();
-        self.expect(Token::LeftParen)?;
-        loop {
-            match self.peek() {
-                Some(Token::StringLiteral(val)) => {
-                    values.push(val.clone());
-                    self.advance();
-                }
-                Some(Token::Comma) => {
-                    self.advance();
-                }
-                Some(Token::RightParen) => {
-                    self.advance();
-                    break;
-                }
-                Some(t) => return Err(format!("Unexpected token in VALUES tuple: {:?}", t)),
-                None => return Err("Unexpected end of input in VALUES tuple".to_string()),
-            }
-        }
-        if values.is_empty() {
-            return Err("Empty VALUES tuple is not allowed".to_string());
-        }
-        Ok(values)
-    }
-
     fn parse_assignments(&mut self) -> Result<Vec<(String, String)>, String> {
         let mut assignments = Vec::new();
         loop {
@@ -279,11 +329,6 @@ impl Parser {
                 break;
             }
         }
-
-        if assignments.is_empty() {
-            return Err("Expected at least one assignment in SET clause".to_string());
-        }
-
         Ok(assignments)
     }
 

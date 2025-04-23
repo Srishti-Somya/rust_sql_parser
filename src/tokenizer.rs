@@ -34,6 +34,7 @@ pub enum Token {
     By,
     Desc,
     Asc,
+    Group,
 }
 
 pub struct Tokenizer {
@@ -149,8 +150,14 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "MODIFY" => Token::Modify,
                     "ORDER" => Token::Order,
                     "BY"    => Token::By,
+                    "GROUP" => Token::Group,
                     "DESC"  => Token::Desc,
                     "ASC"   => Token::Asc,
+                    "COUNT" => Token::Identifier("COUNT".to_string()),
+                    "SUM" => Token::Identifier("SUM".to_string()),
+                    "AVG" => Token::Identifier("AVG".to_string()),
+                    "MIN" => Token::Identifier("MIN".to_string()),
+                    "MAX" => Token::Identifier("MAX".to_string()),
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);
