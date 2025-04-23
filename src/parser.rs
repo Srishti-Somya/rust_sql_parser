@@ -11,6 +11,7 @@ use crate::ast::{
     AlterAction,
     OrderByClause,
     ColumnExpr,
+    HavingClause,
 };
 use crate::tokenizer::Token;
 
@@ -44,13 +45,15 @@ impl Parser {
         let where_cl = self.parse_optional_where_clause()?;
         let group_by = self.parse_optional_group_by()?;
         let order_by = self.parse_optional_order_by()?;
+        let having = self.parse_optional_having()?;
     
         Ok(SQLStatement::Select(SelectStatement {
             columns, 
             table,
             where_clause : where_cl,
             order_by,
-            group_by: None, // you can add group_by parsing later
+            group_by: None, 
+            having,
         }))        
     }
     
@@ -153,7 +156,60 @@ impl Parser {
         } else {
             Ok(None)
         }
-    }    
+    }
+    fn parse_optional_having(&mut self) -> Result<Option<HavingClause>, String> {
+        if let Some(Token::Identifier(word)) = self.peek() {
+            if word.eq_ignore_ascii_case("having") {
+                self.advance();
+    
+                // Parse left-hand expression: could be COUNT(*), SUM(col), etc.
+                let expr = match self.advance() {
+                    Some(Token::Identifier(func)) => {
+                        let func_upper = func.to_uppercase();
+                        self.expect(Token::LeftParen)?;
+                        let inner = match self.advance() {
+                            Some(Token::Asterisk) if func_upper == "COUNT" => {
+                                self.expect(Token::RightParen)?;
+                                ColumnExpr::CountAll
+                            }
+                            Some(Token::Identifier(col)) => {
+                                self.expect(Token::RightParen)?;
+                                match func_upper.as_str() {
+                                    "COUNT" => ColumnExpr::Count(col),
+                                    "SUM" => ColumnExpr::Sum(col),
+                                    "AVG" => ColumnExpr::Avg(col),
+                                    "MIN" => ColumnExpr::Min(col),
+                                    "MAX" => ColumnExpr::Max(col),
+                                    _ => return Err(format!("Unsupported aggregate in HAVING: {}", func)),
+                                }
+                            }
+                            _ => return Err("Expected column or '*' inside function call".to_string()),
+                        };
+                        inner
+                    }
+                    Some(t) => return Err(format!("Unexpected token in HAVING: {:?}", t)),
+                    None => return Err("Unexpected end of input in HAVING clause".to_string()),
+                };
+    
+                let operator = match self.advance() {
+                    Some(Token::Equals) => "=".to_string(),
+                    Some(Token::GreaterThan) => ">".to_string(),
+                    Some(Token::LessThan) => "<".to_string(),
+                    _ => return Err("Expected comparison operator in HAVING".to_string()),
+                };
+    
+                let value = match self.advance() {
+                    Some(Token::StringLiteral(s)) => s.clone(),
+                    Some(Token::NumberLiteral(n)) => n.to_string(),
+                    Some(t) => return Err(format!("Expected value in HAVING but found {:?}", t)),
+                    None => return Err("Expected value in HAVING but found end of input".to_string()),
+                };
+                return Ok(Some(HavingClause { column_expr: expr, operator, value }));
+            }
+        }
+        Ok(None)
+    }
+            
 
     fn parse_column_expr_list(&mut self, until: Token) -> Result<Vec<ColumnExpr>, String> {
         let mut columns = Vec::new();

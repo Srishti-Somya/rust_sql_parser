@@ -16,6 +16,7 @@ pub struct SelectStatement {
     pub where_clause: Option<WhereClause>,
     pub order_by: Option<OrderByClause>,
     pub group_by: Option<Vec<String>>,
+    pub having: Option<HavingClause>,
 }
 
 
@@ -87,4 +88,12 @@ pub enum ColumnExpr {
     CountAll,
     All,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HavingClause {
+    pub column_expr: ColumnExpr,
+    pub operator: String,
+    pub value: String,
+}
+
 

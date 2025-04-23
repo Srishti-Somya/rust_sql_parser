@@ -1,7 +1,7 @@
 use crate::ast::{
     SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement,
     CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction,
-    OrderByClause, WhereClause, ColumnExpr,
+    OrderByClause, WhereClause, ColumnExpr,HavingClause,
 };
 use std::collections::HashMap;
 
@@ -66,6 +66,74 @@ impl Database {
         } else {
             filtered_rows.clone()
         };
+
+        if let Some(having) = &stmt.having {
+            let val: f64 = having.value.parse().unwrap_or(0.0);
+            // let group_by_cols = stmt.group_by.as_ref().unwrap();
+            let group_by_cols = stmt.group_by.as_ref();
+
+            rows = rows.into_iter().filter(|group_row| {
+                // Compare rows by group key
+                let group_matches = |r: &&HashMap<String, String>| {
+                match group_by_cols {
+                    Some(cols) => cols.iter().all(|col| {
+                        match (r.get(col), group_row.get(col)) {
+                            (Some(a), Some(b)) => a == b,
+                            _ => false,
+                        }
+                    }),
+                    None => true, // No GROUP BY: whole table is one group
+                }
+            };
+        
+                // Extract group-matching rows
+                let relevant_rows: Vec<_> = filtered_rows.iter().filter(|r| group_matches(r)).collect();
+        
+                // Compute the aggregation value
+                let agg_val = match &having.column_expr {
+                    ColumnExpr::CountAll => relevant_rows.len() as f64,
+                    ColumnExpr::Count(col) => relevant_rows.iter().filter(|r| r.contains_key(col)).count() as f64,
+                    ColumnExpr::Sum(col) => {
+                        relevant_rows.iter()
+                            .filter_map(|r| r.get(col))
+                            .filter_map(|v| v.parse::<f64>().ok())
+                            .sum()
+                    }
+                    ColumnExpr::Avg(col) => {
+                        let values: Vec<f64> = relevant_rows.iter()
+                            .filter_map(|r| r.get(col))
+                            .filter_map(|v| v.parse::<f64>().ok())
+                            .collect();
+                        if values.is_empty() { 0.0 } else { values.iter().sum::<f64>() / values.len() as f64 }
+                    }
+                    ColumnExpr::Min(col) => {
+                        relevant_rows.iter()
+                            .filter_map(|r| r.get(col))
+                            .filter_map(|v| v.parse::<f64>().ok())
+                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                            .unwrap_or(0.0)
+                    }
+                    ColumnExpr::Max(col) => {
+                        relevant_rows.iter()
+                            .filter_map(|r| r.get(col))
+                            .filter_map(|v| v.parse::<f64>().ok())
+                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                            .unwrap_or(0.0)
+                    }
+                    _ => 0.0,
+                };
+        
+                // Apply the HAVING filter
+                match having.operator.as_str() {
+                    "=" => agg_val == val,
+                    ">" => agg_val > val,
+                    "<" => agg_val < val,
+                    _ => false,
+                }
+            }).collect();
+        }
+        
+
     
         // 3. ORDER BY clause
         if let Some(order) = &stmt.order_by {
