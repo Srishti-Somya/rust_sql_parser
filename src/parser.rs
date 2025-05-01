@@ -1,20 +1,10 @@
 use crate::ast::{
-    SQLStatement,
-    SelectStatement,
-    InsertStatement,
-    UpdateStatement,
-    DeleteStatement,
-    WhereClause,
-    CreateTableStatement,
-    AlterTableStatement,
-    DropTableStatement,
-    AlterAction,
-    OrderByClause,
-    ColumnExpr,
-    HavingClause,
+    SQLStatement,SelectStatement,InsertStatement,UpdateStatement,DeleteStatement,
+    WhereClause,CreateTableStatement,AlterTableStatement,DropTableStatement,
+    AlterAction,OrderByClause,ColumnExpr,HavingClause,
+    JoinClause,JoinType,
 };
 use crate::tokenizer::Token;
-
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -39,24 +29,78 @@ impl Parser {
     }
 
     fn parse_select(&mut self) -> Result<SQLStatement, String> {
-        let columns  = self.parse_column_expr_list(Token::From)?;
+        let columns = self.parse_column_expr_list(Token::From)?;
         self.expect(Token::From)?;
-        let table    = self.expect_identifier("Expected table name after FROM")?;
+        let table = self.expect_identifier("Expected table name after FROM")?;
+
+        let mut join = None;
+
+        if let Some(token) = self.peek().cloned() {
+            let join_type = match token {
+                Token::Join => { self.advance(); JoinType::Inner },
+                Token::Left => { self.advance(); self.expect(Token::Join)?; JoinType::Left },
+                Token::Right => { self.advance(); self.expect(Token::Join)?; JoinType::Right },
+                Token::Full => { self.advance(); self.expect(Token::Join)?; JoinType::Full },
+                Token::Cross => { self.advance(); self.expect(Token::Join)?; JoinType::Cross },
+                _ => JoinType::Inner, // fallback, join won't be triggered
+            };
+
+            if matches!(token, Token::Join | Token::Left | Token::Right | Token::Full) {
+                let join_table = self.expect_identifier("Expected table name after JOIN")?;
+                self.expect(Token::On)?;
+                let left = self.parse_qualified_identifier()?;
+                self.expect(Token::Equals)?;
+                let right = self.parse_qualified_identifier()?;
+                
+                join = Some(JoinClause {
+                    join_type,
+                    table: join_table,
+                    on_left: left,
+                    on_right: right,
+                });
+            }
+            else if token == Token::Cross {
+                let join_table = self.expect_identifier("Expected table name after CROSS JOIN")?;
+
+        join = Some(JoinClause {
+            join_type,
+            table: join_table,
+            on_left: String::new(),
+            on_right: String::new(),
+        });
+            }
+        }
+
         let where_cl = self.parse_optional_where_clause()?;
         let group_by = self.parse_optional_group_by()?;
         let order_by = self.parse_optional_order_by()?;
         let having = self.parse_optional_having()?;
-    
+
         Ok(SQLStatement::Select(SelectStatement {
-            columns, 
+            columns,
             table,
-            where_clause : where_cl,
+            join,
+            where_clause: where_cl,
+            group_by,
             order_by,
-            group_by: None, 
             having,
-        }))        
+        }))
     }
+
+    fn parse_qualified_identifier(&mut self) -> Result<String, String> {
+        let first = self.expect_identifier("Expected identifier")?;
     
+        if self.peek() == Some(&Token::Dot) {
+            self.advance(); // skip the dot
+            if let Some(Token::Identifier(second)) = self.advance() {
+                return Ok(format!("{}.{}", first, second));
+            } else {
+                return Err("Expected identifier after '.'".to_string());
+            }
+        }
+    
+        Ok(first)
+    }    
 
     fn parse_create_table(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Table)?;
@@ -213,7 +257,7 @@ impl Parser {
 
     fn parse_column_expr_list(&mut self, until: Token) -> Result<Vec<ColumnExpr>, String> {
         let mut columns = Vec::new();
-
+    
         loop {
             match self.peek() {
                 Some(t) if *t == until => break,
@@ -221,14 +265,24 @@ impl Parser {
                     self.advance();
                     columns.push(ColumnExpr::All);
                 }
-                Some(Token::Identifier(func_or_col)) => {
-                    let ident = func_or_col.clone();
+                Some(Token::Identifier(first)) => {
+                    let mut ident = first.clone();
                     self.advance();
-
-                    // Check if aggregate function
+    
+                    // Handle qualified names: users.name
+                    if self.peek() == Some(&Token::Dot) {
+                        self.advance(); // skip the dot
+                        if let Some(Token::Identifier(second)) = self.advance() {
+                            ident = format!("{}.{}", ident, second);
+                        } else {
+                            return Err("Expected identifier after '.'".to_string());
+                        }
+                    }
+    
+                    // Check for aggregate functions like COUNT(), SUM()
                     if self.peek() == Some(&Token::LeftParen) {
                         self.advance(); // skip '('
-
+    
                         let inner_col = match self.advance() {
                             Some(Token::Identifier(name)) => name.clone(),
                             Some(Token::Asterisk) if ident.to_uppercase() == "COUNT" => {
@@ -241,9 +295,9 @@ impl Parser {
                             }
                             _ => return Err("Expected column name inside function call".to_string()),
                         };
-
+    
                         self.expect(Token::RightParen)?;
-
+    
                         let expr = match ident.to_uppercase().as_str() {
                             "COUNT" => ColumnExpr::Count(inner_col),
                             "SUM"   => ColumnExpr::Sum(inner_col),
@@ -252,7 +306,7 @@ impl Parser {
                             "MAX"   => ColumnExpr::Max(inner_col),
                             _ => return Err(format!("Unknown function '{}'", ident)),
                         };
-
+    
                         columns.push(expr);
                     } else {
                         columns.push(ColumnExpr::Column(ident));
@@ -265,9 +319,9 @@ impl Parser {
                 None => break,
             }
         }
-
+    
         Ok(columns)
-    }
+    }    
 
     fn parse_insert(&mut self) -> Result<SQLStatement, String> {
         self.expect(Token::Into)?;

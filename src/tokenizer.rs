@@ -1,40 +1,17 @@
-// use std::iter::Peekable;
-// use std::str::Chars;
+use std::iter::Peekable;
+use std::str::Chars;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Select,
-    Insert,
-    Update,
-    Delete,
-    From,
-    Into,
-    Values,
-    Set,
-    Where,
-    Identifier(String),
-    StringLiteral(String),
-    NumberLiteral(f64),
-    Equals,
-    Comma,
-    Asterisk,
-    Semicolon,
-    LeftParen,
-    RightParen,
-    LessThan,
-    GreaterThan,
+    Select, Insert, Update, Delete, From,
+    Into, Values, Set, Where,
+    Identifier(String), StringLiteral(String), NumberLiteral(f64),
+    Equals, Comma, Asterisk, Semicolon, LeftParen, RightParen,
+    LessThan, GreaterThan,
     Unknown(String),
-    Create,
-    Table,
-    Alter,
-    Add,
-    Drop,
-    Modify,
-    Order,
-    By,
-    Desc,
-    Asc,
-    Group,
+    Create, Table, Alter, Add, Drop,
+    Modify, Order, By, Desc, Asc, Group,
+    Join, Left, Right, Full, On, Dot, Cross,
 }
 
 pub struct Tokenizer {
@@ -58,7 +35,7 @@ impl Tokenizer {
         match tokenize(remaining_input) {
             Ok(tokens) => {
                 if let Some(token) = tokens.get(0).cloned() {
-                    self.position += token_length(&token); // Move position forward
+                    self.position += token_length(&token);
                     Some(token)
                 } else {
                     None
@@ -79,7 +56,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
 
     while let Some(&ch) = chars.peek() {
         match ch {
-            ' ' | '\t' | '\n' => { chars.next(); } // Ignore whitespace
+            ' ' | '\t' | '\n' => { chars.next(); }
             '*' => { tokens.push(Token::Asterisk); chars.next(); }
             ',' => { tokens.push(Token::Comma); chars.next(); }
             '=' => { tokens.push(Token::Equals); chars.next(); }
@@ -88,13 +65,14 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             ')' => { tokens.push(Token::RightParen); chars.next(); }
             '>' => { tokens.push(Token::GreaterThan); chars.next(); }
             '<' => { tokens.push(Token::LessThan); chars.next(); }
+            '.' => { tokens.push(Token::Dot); chars.next(); }
 
-            '\'' => { // Handling string literals
-                chars.next(); // Skip opening quote
+            '\'' => {
+                chars.next();
                 let mut literal = String::new();
                 while let Some(&c) = chars.peek() {
                     if c == '\'' {
-                        chars.next(); // Consume closing quote
+                        chars.next();
                         break;
                     }
                     literal.push(c);
@@ -106,7 +84,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token::StringLiteral(literal));
             }
 
-            '0'..='9' => { // Handling numeric literals
+            '0'..='9' => {
                 let mut number = String::new();
                 while let Some(&c) = chars.peek() {
                     if c.is_numeric() || c == '.' {
@@ -122,7 +100,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 }
             }
 
-            'A'..='Z' | 'a'..='z' => { // Handling identifiers and keywords
+            'A'..='Z' | 'a'..='z' => {
                 let mut word = String::new();
                 while let Some(&c) = chars.peek() {
                     if c.is_alphanumeric() || c == '_' {
@@ -146,24 +124,25 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     "TABLE" => Token::Table,
                     "ALTER" => Token::Alter,
                     "ADD" => Token::Add,
-                    "DROP"   => Token::Drop,
+                    "DROP" => Token::Drop,
                     "MODIFY" => Token::Modify,
                     "ORDER" => Token::Order,
-                    "BY"    => Token::By,
+                    "BY" => Token::By,
                     "GROUP" => Token::Group,
-                    "DESC"  => Token::Desc,
-                    "ASC"   => Token::Asc,
-                    "COUNT" => Token::Identifier("COUNT".to_string()),
-                    "SUM" => Token::Identifier("SUM".to_string()),
-                    "AVG" => Token::Identifier("AVG".to_string()),
-                    "MIN" => Token::Identifier("MIN".to_string()),
-                    "MAX" => Token::Identifier("MAX".to_string()),
+                    "DESC" => Token::Desc,
+                    "ASC" => Token::Asc,
+                    "JOIN" => Token::Join,
+                    "LEFT" => Token::Left,
+                    "RIGHT" => Token::Right,
+                    "FULL" => Token::Full,
+                    "CROSS" => Token::Cross,
+                    "ON" => Token::On,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(token);
             }
 
-            _ => { // Handle unknown characters
+            _ => {
                 tokens.push(Token::Unknown(ch.to_string()));
                 chars.next();
             }
@@ -172,12 +151,44 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
+fn keyword_str(token: &Token) -> &'static str {
+    match token {
+        Token::Select => "SELECT",
+        Token::Insert => "INSERT",
+        Token::Update => "UPDATE",
+        Token::Delete => "DELETE",
+        Token::From => "FROM",
+        Token::Into => "INTO",
+        Token::Values => "VALUES",
+        Token::Set => "SET",
+        Token::Where => "WHERE",
+        Token::Create => "CREATE",
+        Token::Table => "TABLE",
+        Token::Alter => "ALTER",
+        Token::Add => "ADD",
+        Token::Drop => "DROP",
+        Token::Modify => "MODIFY",
+        Token::Order => "ORDER",
+        Token::By => "BY",
+        Token::Group => "GROUP",
+        Token::Join => "JOIN",
+        Token::Left => "LEFT",
+        Token::Right => "RIGHT",
+        Token::Full => "FULL",
+        Token::On => "ON",
+        Token::Desc => "DESC",
+        Token::Asc => "ASC",
+        Token::Cross => "CROSS",
+        _ => "",
+    }
+}
+
 fn token_length(token: &Token) -> usize {
     match token {
         Token::Identifier(s) => s.len(),
-        Token::StringLiteral(s) => s.len() + 2, // Includes surrounding quotes
+        Token::StringLiteral(s) => s.len() + 2,
         Token::NumberLiteral(n) => n.to_string().len(),
         Token::Unknown(s) => s.len(),
-        _ => 1, // Most single-character tokens
+        _ => keyword_str(token).len().max(1),
     }
 }

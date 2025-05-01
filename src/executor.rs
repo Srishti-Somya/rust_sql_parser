@@ -1,7 +1,7 @@
 use crate::ast::{
     SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement,
     CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction,
-    OrderByClause, WhereClause, ColumnExpr,HavingClause,
+    OrderByClause, WhereClause, ColumnExpr,HavingClause, JoinClause, JoinType,
 };
 use std::collections::HashMap;
 
@@ -28,102 +28,186 @@ impl Database {
     }
 
     fn execute_select(&self, stmt: &SelectStatement) -> Result<String, String> {
-        let table = self.tables.get(&stmt.table)
-            .ok_or_else(|| format!("Table '{}' not found", stmt.table))?;
+        // 1. Evaluate JOIN if any
+        let mut rows = if let Some(join) = &stmt.join {
+            let left_table = self.tables.get(&stmt.table)
+                .ok_or_else(|| format!("Left table '{}' not found", stmt.table))?;
+            let right_table = self.tables.get(&join.table)
+                .ok_or_else(|| format!("Right table '{}' not found", join.table))?;
     
-        // 1. Filter by WHERE clause
-        let filtered_rows: Vec<_> = table.iter()
-            .filter(|row| {
-                stmt.where_clause
-                    .as_ref()
-                    .map_or(true, |wc| row.get(&wc.column).map_or(false, |v| v == &wc.value))
-            })
-            .collect();
-    
-        // 2. Handle GROUP BY
-        let mut rows = if let Some(group_cols) = &stmt.group_by {
-            let mut seen_keys = Vec::new();
-            for r in &filtered_rows {
-                let key: Vec<String> = group_cols.iter()
-                    .map(|col| r.get(col).cloned().unwrap_or_default())
-                    .collect();
-                if !seen_keys.contains(&key) {
-                    seen_keys.push(key);
+            let mut result = Vec::new();
+            let left_col = join.on_left.split('.').last().unwrap();
+let right_col = join.on_right.split('.').last().unwrap();
+
+match join.join_type {
+    JoinType::Inner => {
+        for lrow in left_table {
+            for rrow in right_table {
+                if lrow.get(left_col) == rrow.get(right_col) {
+                    let mut combined = lrow.clone();
+                    for (k, v) in rrow {
+                        combined.insert(format!("{}.{}", join.table, k), v.clone());
+                    }
+                    result.push(combined);
                 }
             }
-    
-            seen_keys
-                .into_iter()
-                .filter_map(|key| {
-                    filtered_rows.iter().find(|r| {
-                        group_cols.iter().enumerate().all(|(i, col)| {
-                            r.get(col).cloned().unwrap_or_default() == key[i]
-                        })
-                    })
-                })
-                .copied()
-                .collect::<Vec<_>>()
-        } else {
-            filtered_rows.clone()
-        };
+        }
+    }
 
+    JoinType::Left => {
+        for lrow in left_table {
+            let mut matched = false;
+            for rrow in right_table {
+                if lrow.get(left_col) == rrow.get(right_col) {
+                    let mut combined = lrow.clone();
+                    for (k, v) in rrow {
+                        combined.insert(format!("{}.{}", join.table, k), v.clone());
+                    }
+                    result.push(combined);
+                    matched = true;
+                }
+            }
+            if !matched {
+                let mut combined = lrow.clone();
+                for k in right_table[0].keys() {
+                    combined.insert(format!("{}.{}", join.table, k), "NULL".to_string());
+                }
+                result.push(combined);
+            }
+        }
+    }
+
+    JoinType::Right => {
+        for rrow in right_table {
+            let mut matched = false;
+            for lrow in left_table {
+                if lrow.get(left_col) == rrow.get(right_col) {
+                    let mut combined = lrow.clone();
+                    for (k, v) in rrow {
+                        combined.insert(format!("{}.{}", join.table, k), v.clone());
+                    }
+                    result.push(combined);
+                    matched = true;
+                }
+            }
+            if !matched {
+                let mut combined = HashMap::new();
+                for k in left_table[0].keys() {
+                    combined.insert(k.clone(), "NULL".to_string());
+                }
+                for (k, v) in rrow {
+                    combined.insert(format!("{}.{}", join.table, k), v.clone());
+                }
+                result.push(combined);
+            }
+        }
+    }
+
+    JoinType::Full => {
+        let mut matched_right = vec![false; right_table.len()];
+        for lrow in left_table {
+            let mut matched = false;
+            for (i, rrow) in right_table.iter().enumerate() {
+                if lrow.get(left_col) == rrow.get(right_col) {
+                    let mut combined = lrow.clone();
+                    for (k, v) in rrow {
+                        combined.insert(format!("{}.{}", join.table, k), v.clone());
+                    }
+                    result.push(combined);
+                    matched = true;
+                    matched_right[i] = true;
+                }
+            }
+            if !matched {
+                let mut combined = lrow.clone();
+                for k in right_table[0].keys() {
+                    combined.insert(format!("{}.{}", join.table, k), "NULL".to_string());
+                }
+                result.push(combined);
+            }
+        }
+
+        for (i, rrow) in right_table.iter().enumerate() {
+            if !matched_right[i] {
+                let mut combined = HashMap::new();
+                for k in left_table[0].keys() {
+                    combined.insert(k.clone(), "NULL".to_string());
+                }
+                for (k, v) in rrow {
+                    combined.insert(format!("{}.{}", join.table, k), v.clone());
+                }
+                result.push(combined);
+            }
+        }
+    }
+    JoinType::Cross => {
+        for lrow in left_table {
+            for rrow in right_table {
+                let mut combined = lrow.clone();
+                for (k, v) in rrow {
+                    combined.insert(format!("{}.{}", join.table, k), v.clone());
+                }
+                result.push(combined);
+            }
+        }
+    }
+}
+
+    
+            result} else {
+            self.tables.get(&stmt.table)
+                .ok_or_else(|| format!("Table '{}' not found", stmt.table))?
+                .clone()
+        };
+    
+        // 2. Apply WHERE filter
+        if let Some(where_clause) = &stmt.where_clause {
+            rows = rows.into_iter()
+                .filter(|row| row.get(&where_clause.column)
+                    .map_or(false, |val| val == &where_clause.value))
+                .collect();
+        }
+    
+        // 3. Apply GROUP BY
+        if let Some(group_cols) = &stmt.group_by {
+            let mut seen = Vec::new();
+            let mut grouped = Vec::new();
+            for r in &rows {
+                let key: Vec<String> = group_cols.iter()
+                    .map(|c| r.get(c).cloned().unwrap_or_default())
+                    .collect();
+                if !seen.contains(&key) {
+                    seen.push(key.clone());
+                    grouped.push(r.clone());
+                }
+            }
+            rows = grouped;
+        }
+    
+        // 4. Apply HAVING
         if let Some(having) = &stmt.having {
             let val: f64 = having.value.parse().unwrap_or(0.0);
-            // let group_by_cols = stmt.group_by.as_ref().unwrap();
-            let group_by_cols = stmt.group_by.as_ref();
-
+            let all_rows = rows.clone();
             rows = rows.into_iter().filter(|group_row| {
-                // Compare rows by group key
-                let group_matches = |r: &&HashMap<String, String>| {
-                match group_by_cols {
-                    Some(cols) => cols.iter().all(|col| {
-                        match (r.get(col), group_row.get(col)) {
-                            (Some(a), Some(b)) => a == b,
-                            _ => false,
-                        }
-                    }),
-                    None => true, // No GROUP BY: whole table is one group
-                }
-            };
-        
-                // Extract group-matching rows
-                let relevant_rows: Vec<_> = filtered_rows.iter().filter(|r| group_matches(r)).collect();
-        
-                // Compute the aggregation value
+                let group: Vec<_> = self.tables.get(&stmt.table).unwrap().iter().filter(|r| {
+                    stmt.group_by.as_ref().map_or(true, |cols| {
+                        cols.iter().all(|c| r.get(c) == group_row.get(c))
+                    })
+                }).collect();
+    
                 let agg_val = match &having.column_expr {
-                    ColumnExpr::CountAll => relevant_rows.len() as f64,
-                    ColumnExpr::Count(col) => relevant_rows.iter().filter(|r| r.contains_key(col)).count() as f64,
-                    ColumnExpr::Sum(col) => {
-                        relevant_rows.iter()
-                            .filter_map(|r| r.get(col))
-                            .filter_map(|v| v.parse::<f64>().ok())
-                            .sum()
-                    }
+                    ColumnExpr::CountAll => group.len() as f64,
+                    ColumnExpr::Count(col) => group.iter().filter(|r| r.contains_key(col)).count() as f64,
+                    ColumnExpr::Sum(col) => group.iter().filter_map(|r| r.get(col)?.parse::<f64>().ok()).sum(),
                     ColumnExpr::Avg(col) => {
-                        let values: Vec<f64> = relevant_rows.iter()
-                            .filter_map(|r| r.get(col))
-                            .filter_map(|v| v.parse::<f64>().ok())
-                            .collect();
-                        if values.is_empty() { 0.0 } else { values.iter().sum::<f64>() / values.len() as f64 }
+                        let vals: Vec<f64> = group.iter().filter_map(|r| r.get(col)?.parse::<f64>().ok()).collect();
+                        if vals.is_empty() { 0.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
                     }
-                    ColumnExpr::Min(col) => {
-                        relevant_rows.iter()
-                            .filter_map(|r| r.get(col))
-                            .filter_map(|v| v.parse::<f64>().ok())
-                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                            .unwrap_or(0.0)
-                    }
-                    ColumnExpr::Max(col) => {
-                        relevant_rows.iter()
-                            .filter_map(|r| r.get(col))
-                            .filter_map(|v| v.parse::<f64>().ok())
-                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                            .unwrap_or(0.0)
-                    }
+                    ColumnExpr::Min(col) => group.iter().filter_map(|r| r.get(col)?.parse::<f64>().ok()).min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(0.0),
+                    ColumnExpr::Max(col) => group.iter().filter_map(|r| r.get(col)?.parse::<f64>().ok()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(0.0),
                     _ => 0.0,
                 };
-        
-                // Apply the HAVING filter
+    
                 match having.operator.as_str() {
                     "=" => agg_val == val,
                     ">" => agg_val > val,
@@ -132,10 +216,8 @@ impl Database {
                 }
             }).collect();
         }
-        
-
     
-        // 3. ORDER BY clause
+        // 5. Apply ORDER BY
         if let Some(order) = &stmt.order_by {
             let empty = String::new();
             rows.sort_by(|a, b| {
@@ -145,145 +227,139 @@ impl Database {
             });
         }
     
+        // 6. Output formatting
         if rows.is_empty() {
             return Err("No matching rows found".to_string());
         }
     
-        // 4. Determine if the query is aggregate-only
-        let is_aggregate_only = stmt.columns.iter().all(|col| matches!(
-            col,
-            ColumnExpr::Count(_) |
-            ColumnExpr::CountAll |
-            ColumnExpr::Sum(_) |
-            ColumnExpr::Avg(_) |
-            ColumnExpr::Min(_) |
-            ColumnExpr::Max(_)
-        ));
-    
-        // 5. Build header
-        let selected: Vec<String> = if stmt.columns.len() == 1 {
-            match &stmt.columns[0] {
-                ColumnExpr::CountAll => vec!["COUNT(*)".to_string()],
-                ColumnExpr::Column(c) => vec![c.clone()],
-                ColumnExpr::All => {
-                    let mut cols: Vec<_> = rows[0].keys().cloned().collect();
-                    cols.sort(); 
-                    cols
-                }
-                _ => stmt.columns.iter().map(|c| match c {
-                    ColumnExpr::Column(name) => name.clone(),
-                    ColumnExpr::Count(col) => format!("COUNT({})", col),
-                    ColumnExpr::Sum(col) => format!("SUM({})", col),
-                    ColumnExpr::Avg(col) => format!("AVG({})", col),
-                    ColumnExpr::Min(col) => format!("MIN({})", col),
-                    ColumnExpr::Max(col) => format!("MAX({})", col),
-                    ColumnExpr::CountAll => "COUNT(*)".to_string(),
-                    ColumnExpr::All => "*".to_string(),
-                }).collect(),
-            }
+        let mut output = String::new();
+        let headers: Vec<String> = if stmt.columns.len() == 1 && matches!(stmt.columns[0], ColumnExpr::All) {
+            let mut keys: Vec<_> = rows[0].keys().cloned().collect();
+            keys.sort();
+            keys
         } else {
-            stmt.columns.iter().map(|c| match c {
-                ColumnExpr::Column(name) => name.clone(),
-                ColumnExpr::Count(col) => format!("COUNT({})", col),
-                ColumnExpr::Sum(col) => format!("SUM({})", col),
-                ColumnExpr::Avg(col) => format!("AVG({})", col),
-                ColumnExpr::Min(col) => format!("MIN({})", col),
-                ColumnExpr::Max(col) => format!("MAX({})", col),
-                ColumnExpr::CountAll => "COUNT(*)".to_string(),
+            stmt.columns.iter().map(|col| match col {
+                ColumnExpr::Column(c) => c.clone(),
                 ColumnExpr::All => "*".to_string(),
+                ColumnExpr::Count(c) => format!("COUNT({})", c),
+                ColumnExpr::CountAll => "COUNT(*)".to_string(),
+                ColumnExpr::Sum(c) => format!("SUM({})", c),
+                ColumnExpr::Avg(c) => format!("AVG({})", c),
+                ColumnExpr::Min(c) => format!("MIN({})", c),
+                ColumnExpr::Max(c) => format!("MAX({})", c),
             }).collect()
         };
+        output += &headers.join(" | ");
+        output += "\n";
+        output += &"-".repeat(headers.join(" | ").len());
+        output += "\n";
     
-        let mut out = String::new();
-        out += &selected.join(" | ");
-        out += "\n";
-        out += &"-".repeat(selected.join(" | ").len());
-        out += "\n";
-    
-        if is_aggregate_only {
-            let row_vals: Vec<String> = stmt.columns.iter().map(|col| {
-                match col {
-                    ColumnExpr::CountAll => filtered_rows.len().to_string(),
-                    ColumnExpr::Count(c) => filtered_rows.iter().filter(|rr| rr.contains_key(c)).count().to_string(),
-                    ColumnExpr::Sum(c) => {
-                        let sum: i32 = filtered_rows.iter()
-                            .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                            .sum();
-                        sum.to_string()
+        for row in rows {
+            let line = if stmt.columns.len() == 1 && matches!(stmt.columns[0], ColumnExpr::All) {
+                let mut keys: Vec<_> = row.keys().collect();
+                keys.sort();
+                keys.iter()
+                    .map(|k| row.get(*k).unwrap_or(&"".to_string()).clone())
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            } else {
+                stmt.columns.iter().map(|col| {
+                    match col {
+                        ColumnExpr::Column(c) => {
+                            // Try fully qualified first
+                            row.get(c).cloned()
+                             // If not found, try unqualified match
+                             .or_else(|| {
+                                 let parts: Vec<&str> = c.split('.').collect();
+                                 if parts.len() == 2 {
+                                     row.get(parts[1]).cloned()
+                                 } else {
+                                     None
+                                 }
+                             })
+                             .unwrap_or_default()
+                        },                        
+
+        ColumnExpr::CountAll => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            group_rows.len().to_string()
+        }
+
+        ColumnExpr::Count(c) => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            group_rows.iter().filter(|r| r.contains_key(c)).count().to_string()
+        }
+
+        ColumnExpr::Sum(c) => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            let sum: f64 = group_rows.iter()
+                .filter_map(|r| r.get(c)?.parse::<f64>().ok())
+                .sum();
+            sum.to_string()
+        }
+
+        ColumnExpr::Avg(c) => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            let vals: Vec<f64> = group_rows.iter()
+                .filter_map(|r| r.get(c)?.parse::<f64>().ok())
+                .collect();
+            if vals.is_empty() { "0".to_string() }
+            else { (vals.iter().sum::<f64>() / vals.len() as f64).to_string() }
+        }
+
+        ColumnExpr::Min(c) => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            group_rows.iter()
+                .filter_map(|r| r.get(c)?.parse::<f64>().ok())
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0)
+                .to_string()
+        }
+
+        ColumnExpr::Max(c) => {
+            let group_rows: Vec<_> = self.tables.get(&stmt.table).unwrap().iter()
+                .filter(|r| stmt.group_by.as_ref().map_or(true, |cols| {
+                    cols.iter().all(|col| r.get(col) == row.get(col))
+                }))
+                .collect();
+            group_rows.iter()
+                .filter_map(|r| r.get(c)?.parse::<f64>().ok())
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0)
+                .to_string()
+        }
+
+        _ => "".to_string() 
                     }
-                    ColumnExpr::Avg(c) => {
-                        let values: Vec<i32> = filtered_rows.iter()
-                            .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                            .collect();
-                        if values.is_empty() { "0".to_string() }
-                        else { (values.iter().sum::<i32>() as f64 / values.len() as f64).to_string() }
-                    }
-                    ColumnExpr::Min(c) => {
-                        filtered_rows.iter()
-                            .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                            .min().map(|v| v.to_string()).unwrap_or_default()
-                    }
-                    ColumnExpr::Max(c) => {
-                        filtered_rows.iter()
-                            .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                            .max().map(|v| v.to_string()).unwrap_or_default()
-                    }
-                    _ => "".to_string(),
-                }
-            }).collect();
-    
-            out += &row_vals.join(" | ");
-            out += "\n";
-        } else {
-            for r in rows {
-                let row_output = if stmt.columns.len() == 1 && matches!(stmt.columns[0], ColumnExpr::All) {
-                    let mut keys: Vec<_> = r.keys().collect();
-                    keys.sort();
-                    keys.iter()
-                        .map(|k| r.get(*k).unwrap_or(&"".to_string()).clone())
-                        .collect::<Vec<_>>()
-                        .join(" | ")
-                } else {
-                    stmt.columns.iter().map(|col| {
-                        match col {
-                            ColumnExpr::Column(name) => r.get(name).cloned().unwrap_or_default(),
-                            ColumnExpr::All => "".to_string(), // handled above
-                            ColumnExpr::CountAll => filtered_rows.len().to_string(),
-                            ColumnExpr::Count(c) => filtered_rows.iter().filter(|rr| rr.contains_key(c)).count().to_string(),
-                            ColumnExpr::Sum(c) => {
-                                let sum: i32 = filtered_rows.iter()
-                                    .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                                    .sum();
-                                sum.to_string()
-                            }
-                            ColumnExpr::Avg(c) => {
-                                let values: Vec<i32> = filtered_rows.iter()
-                                    .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                                    .collect();
-                                if values.is_empty() { "0".to_string() }
-                                else { (values.iter().sum::<i32>() as f64 / values.len() as f64).to_string() }
-                            }
-                            ColumnExpr::Min(c) => {
-                                filtered_rows.iter()
-                                    .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                                    .min().map(|v| v.to_string()).unwrap_or_default()
-                            }
-                            ColumnExpr::Max(c) => {
-                                filtered_rows.iter()
-                                    .filter_map(|rr| rr.get(c)?.parse::<i32>().ok())
-                                    .max().map(|v| v.to_string()).unwrap_or_default()
-                            }
-                        }
-                    }).collect::<Vec<_>>().join(" | ")
-                };
-    
-                out += &row_output;
-                out += "\n";
-            }
+                }).collect::<Vec<_>>().join(" | ")
+            };
+            output += &line;
+            output += "\n";
         }
     
-        Ok(out)
+        Ok(output)
     }
+    
     
     fn execute_insert(&mut self, stmt: InsertStatement) -> Result<String, String> {
         let table = self.tables.entry(stmt.table.clone()).or_insert_with(Vec::new);

@@ -17,6 +17,7 @@ pub struct SelectStatement {
     pub order_by: Option<OrderByClause>,
     pub group_by: Option<Vec<String>>,
     pub having: Option<HavingClause>,
+    pub join: Option<JoinClause>,
 }
 
 
@@ -94,6 +95,22 @@ pub struct HavingClause {
     pub column_expr: ColumnExpr,
     pub operator: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    Inner,
+    Left,
+    Right,
+    Full,
+    Cross,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinClause {
+    pub join_type: JoinType,
+    pub table: String,
+    pub on_left: String,
+    pub on_right: String,
 }
 
 
