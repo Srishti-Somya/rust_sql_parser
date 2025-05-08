@@ -24,7 +24,7 @@ ALTER TABLE users MODIFY age INT;<br />
 <br />
 INSERT INTO users (id, name, age) VALUES ('1', 'srishti', '30');<br />
 INSERT INTO users (id, name, age) VALUES ('2', 'srijan', '25');<br />
-INSERT INTO users (id, name, age) VALUES ('3', 'tanish’, '22');<br />
+INSERT INTO users (id, name, age) VALUES ('3', 'tanish', '22');<br />
 <br />
 SELECT * FROM users;<br />
 SELECT id, name FROM users;<br />
