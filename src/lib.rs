@@ -2,7 +2,7 @@ pub mod tokenizer;
 pub mod parser;
 pub mod ast;
 pub mod executor;
-pub mod integration;  // If integration logic exists
+pub mod integration;  
 
 pub use tokenizer::*;
 pub use parser::*;

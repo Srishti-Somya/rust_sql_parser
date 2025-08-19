@@ -2,14 +2,16 @@ mod tokenizer;
 mod parser;
 mod ast;
 mod executor;
+mod storage;
+mod persistent_executor;
 
 use tokenizer::Tokenizer;
 use parser::Parser;
-use executor::Database;
+use persistent_executor::PersistentDatabase;
 use std::io::{self, Write};
 
 fn main() {
-    let mut db = Database::new(); // In-memory DB instance
+    let mut db = PersistentDatabase::new("data").expect("Failed to initialize database");
 
     loop {
         print!("sql> ");
@@ -21,6 +23,7 @@ fn main() {
 
         if query.eq_ignore_ascii_case("exit") {
             println!("👋 Exiting SQL Parser...");
+            db.close().expect("Failed to close database");
             break;
         }
 
