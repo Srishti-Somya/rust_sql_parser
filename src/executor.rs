@@ -1,7 +1,7 @@
 use crate::ast::{
     SQLStatement, SelectStatement, InsertStatement, UpdateStatement, DeleteStatement,
     CreateTableStatement, AlterTableStatement, DropTableStatement, AlterAction,
-    OrderByClause, WhereClause, ColumnExpr, HavingClause, JoinClause, JoinType,
+    OrderByClause, WhereClause, ColumnExpr,HavingClause, JoinClause, JoinType,
 };
 use std::collections::HashMap;
 
@@ -28,7 +28,7 @@ impl Database {
     }
 
     fn execute_select(&self, stmt: &SelectStatement) -> Result<String, String> {
-        //JOIN
+        // 1. Evaluate JOIN if any
         let mut rows = if let Some(join) = &stmt.join {
             let left_table = self.tables.get(&stmt.table)
                 .ok_or_else(|| format!("Left table '{}' not found", stmt.table))?;
@@ -160,7 +160,7 @@ match join.join_type {
                 .clone()
         };
     
-        //WHERE filter
+        // 2. Apply WHERE filter
         if let Some(where_clause) = &stmt.where_clause {
             rows = rows.into_iter()
                 .filter(|row| row.get(&where_clause.column)
@@ -168,7 +168,7 @@ match join.join_type {
                 .collect();
         }
     
-        //GROUP BY
+        // 3. Apply GROUP BY
         if let Some(group_cols) = &stmt.group_by {
             let mut seen = Vec::new();
             let mut grouped = Vec::new();
@@ -184,7 +184,7 @@ match join.join_type {
             rows = grouped;
         }
     
-        //HAVING
+        // 4. Apply HAVING
         if let Some(having) = &stmt.having {
             let val: f64 = having.value.parse().unwrap_or(0.0);
             let all_rows = rows.clone();
@@ -217,7 +217,7 @@ match join.join_type {
             }).collect();
         }
     
-        //ORDER BY
+        // 5. Apply ORDER BY
         if let Some(order) = &stmt.order_by {
             let empty = String::new();
             rows.sort_by(|a, b| {
@@ -227,7 +227,7 @@ match join.join_type {
             });
         }
     
-        //output
+        // 6. Output formatting
         if rows.is_empty() {
             return Err("No matching rows found".to_string());
         }
